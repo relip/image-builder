@@ -5,5 +5,13 @@
     "image": "happy",
     "tag_prefix": "cli-",
     "platforms": "linux/amd64"
+  },
+  {
+    "name": "happy-webapp",
+    "upstream_repository": "slopus/happy",
+    "image": "happy-webapp",
+    "tag_prefix": "cli-",
+    "dockerfile": "Dockerfile.webapp",
+    "platforms": "linux/amd64"
   }
 ]
