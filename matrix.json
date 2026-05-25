@@ -1,0 +1,9 @@
+[
+  {
+    "name": "happy",
+    "upstream_repository": "slopus/happy",
+    "image": "happy",
+    "tag_prefix": "cli-",
+    "platforms": "linux/amd64"
+  }
+]

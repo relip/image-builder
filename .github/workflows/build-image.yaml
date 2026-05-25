@@ -1,0 +1,108 @@
+name: Build Images
+
+on:
+  push:
+    branches:
+    - main
+    paths:
+    - matrix.json
+    - scripts/**
+    - .github/workflows/build-image.yaml
+  schedule:
+  - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_repository:
+        description: GitHub repository in owner/name form
+        required: false
+        type: string
+      image:
+        description: Target image name under ghcr.io/relip, for example happy
+        required: false
+        type: string
+      tag:
+        description: Exact upstream tag. Leave empty to resolve latest.
+        required: false
+        type: string
+      tag_prefix:
+        description: Optional tag prefix for tag resolution
+        required: false
+        type: string
+      tag_regex:
+        description: Optional bash regex for tag resolution
+        required: false
+        type: string
+      context_subdir:
+        description: Optional build context subdirectory in upstream repo
+        required: false
+        type: string
+      dockerfile:
+        description: Dockerfile path relative to build context
+        required: false
+        default: Dockerfile
+        type: string
+      platforms:
+        description: Build platforms
+        required: false
+        default: linux/amd64
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: image-builder-${{ github.event_name }}-${{ inputs.upstream_repository || 'matrix' }}-${{ inputs.tag || 'latest' }}
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v4
+    - id: matrix
+      env:
+        INPUT_REPOSITORY: ${{ inputs.upstream_repository }}
+        INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_TAG_PREFIX: ${{ inputs.tag_prefix }}
+        INPUT_TAG_REGEX: ${{ inputs.tag_regex }}
+        INPUT_CONTEXT_SUBDIR: ${{ inputs.context_subdir }}
+        INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
+        INPUT_PLATFORMS: ${{ inputs.platforms }}
+      run: |
+        set -euo pipefail
+        echo "matrix=$(bash ./scripts/matrix-to-json.sh matrix.json)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.matrix.outputs.matrix) }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: docker/setup-buildx-action@v3
+
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Build and push
+      env:
+        GH_TOKEN: ${{ github.token }}
+        UPSTREAM_REPOSITORY: ${{ matrix.upstream_repository }}
+        IMAGE: ${{ matrix.image }}
+        TAG: ${{ matrix.tag }}
+        TAG_PREFIX: ${{ matrix.tag_prefix }}
+        TAG_REGEX: ${{ matrix.tag_regex }}
+        CONTEXT_SUBDIR: ${{ matrix.context_subdir }}
+        DOCKERFILE: ${{ matrix.dockerfile || 'Dockerfile' }}
+        PLATFORMS: ${{ matrix.platforms || 'linux/amd64' }}
+      run: bash ./scripts/build-image.sh
