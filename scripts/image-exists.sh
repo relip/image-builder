@@ -7,6 +7,15 @@ IMAGE="${IMAGE:?IMAGE is required}"
 TAG="${TAG:?TAG is required}"
 IMAGE_EXISTS_RETRIES="${IMAGE_EXISTS_RETRIES:-3}"
 IMAGE_EXISTS_RETRY_DELAY="${IMAGE_EXISTS_RETRY_DELAY:-2}"
+ERROR_FILE=""
+
+cleanup() {
+  if [[ -n "${ERROR_FILE}" ]]; then
+    rm -f "${ERROR_FILE}"
+  fi
+}
+
+trap cleanup EXIT
 
 full_image_name() {
   if [[ "${IMAGE}" == "${IMAGE_NAMESPACE}/"* ]]; then
@@ -34,26 +43,24 @@ inspect_image() {
 main() {
   local image
   local image_ref
-  local error_file
   local attempt=1
 
   image="$(full_image_name)"
   image_ref="${image}:${TAG}"
-  error_file="$(mktemp "${TMPDIR:-/tmp}/image-exists.XXXXXX")"
-  trap 'rm -f "${error_file}"' EXIT
+  ERROR_FILE="$(mktemp "${TMPDIR:-/tmp}/image-exists.XXXXXX")"
 
   while :; do
-    if inspect_image "${image_ref}" "${error_file}"; then
+    if inspect_image "${image_ref}" "${ERROR_FILE}"; then
       return 0
     fi
 
-    if is_missing_image_error "${error_file}"; then
+    if is_missing_image_error "${ERROR_FILE}"; then
       return 1
     fi
 
     if (( attempt >= IMAGE_EXISTS_RETRIES )); then
       echo "Could not verify whether image exists: ${image_ref}" >&2
-      sed 's/^/  /' "${error_file}" >&2
+      sed 's/^/  /' "${ERROR_FILE}" >&2
       return 2
     fi
 
