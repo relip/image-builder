@@ -2,6 +2,7 @@
 set -euo pipefail
 
 MATRIX_FILE="${1:-matrix.json}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 require_jq() {
   if ! command -v jq >/dev/null 2>&1; then
@@ -47,6 +48,80 @@ emit_matrix_file_items() {
   jq -c . "${MATRIX_FILE}"
 }
 
+# For each item without an explicit `tag`, resolve every matching upstream tag
+# and fan out to one matrix entry per tag. The newest tag (first returned by
+# the GitHub API) is marked with tag_latest=true so build-image.sh only moves
+# the :latest pointer for the most recent release.
+expand_items_with_tags() {
+  local input_json
+  input_json="$(cat)"
+
+  local count
+  count="$(jq 'length' <<<"${input_json}")"
+
+  local expanded='[]'
+  local i=0
+  while (( i < count )); do
+    local item
+    item="$(jq -c ".[$i]" <<<"${input_json}")"
+
+    local explicit_tag
+    explicit_tag="$(jq -r '.tag // ""' <<<"${item}")"
+
+    if [[ -n "${explicit_tag}" ]]; then
+      local fanned
+      fanned="$(jq -c '. + {tag_latest: "true"}' <<<"${item}")"
+      expanded="$(jq -c --argjson item "${fanned}" '. + [$item]' <<<"${expanded}")"
+    else
+      local upstream tag_prefix tag_regex
+      upstream="$(jq -r '.upstream_repository' <<<"${item}")"
+      tag_prefix="$(jq -r '.tag_prefix // ""' <<<"${item}")"
+      tag_regex="$(jq -r '.tag_regex // ""' <<<"${item}")"
+
+      local tags
+      tags="$(
+        UPSTREAM_REPOSITORY="${upstream}" \
+          TAG_PREFIX="${tag_prefix}" \
+          TAG_REGEX="${tag_regex}" \
+          LIST_ALL=true \
+          bash "${SCRIPT_DIR}/resolve-tag.sh"
+      )"
+
+      if [[ -z "${tags}" ]]; then
+        echo "No matching tags found for $(jq -r '.name' <<<"${item}") (${upstream})" >&2
+        i=$((i + 1))
+        continue
+      fi
+
+      local first=true
+      while IFS= read -r tag; do
+        [[ -z "${tag}" ]] && continue
+        local latest="false"
+        if [[ "${first}" == "true" ]]; then
+          latest="true"
+          first=false
+        fi
+
+        local base_name
+        base_name="$(jq -r '.name' <<<"${item}")"
+        local fanned
+        fanned="$(jq -c \
+          --arg name "${base_name}-${tag}" \
+          --arg tag "${tag}" \
+          --arg tag_latest "${latest}" \
+          '. + {name: $name, tag: $tag, tag_latest: $tag_latest}
+             | del(.tag_prefix, .tag_regex)' \
+          <<<"${item}")"
+        expanded="$(jq -c --argjson item "${fanned}" '. + [$item]' <<<"${expanded}")"
+      done <<<"${tags}"
+    fi
+
+    i=$((i + 1))
+  done
+
+  printf '%s\n' "${expanded}"
+}
+
 validate_and_wrap_items() {
   jq -ce '
     def fail($message): error($message);
@@ -58,6 +133,7 @@ validate_and_wrap_items() {
         "tag",
         "tag_prefix",
         "tag_regex",
+        "tag_latest",
         "context_subdir",
         "dockerfile",
         "platforms"
@@ -146,7 +222,7 @@ main() {
     emit_dispatch_items
   else
     emit_matrix_file_items
-  fi | validate_and_wrap_items
+  fi | expand_items_with_tags | validate_and_wrap_items
 }
 
 main "$@"

@@ -5,6 +5,7 @@ UPSTREAM_REPOSITORY="${UPSTREAM_REPOSITORY:?UPSTREAM_REPOSITORY is required}"
 TAG="${TAG:-}"
 TAG_PREFIX="${TAG_PREFIX:-}"
 TAG_REGEX="${TAG_REGEX:-}"
+LIST_ALL="${LIST_ALL:-false}"
 GITHUB_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 
 require_jq() {
@@ -63,6 +64,14 @@ first_matching_tag() {
   done
 }
 
+all_matching_tags() {
+  while IFS= read -r candidate; do
+    if tag_matches_filters "${candidate}"; then
+      printf '%s\n' "${candidate}"
+    fi
+  done
+}
+
 tag_names_with_gh() {
   gh api --paginate "repos/${UPSTREAM_REPOSITORY}/tags?per_page=100" --jq '.[].name'
 }
@@ -97,8 +106,26 @@ latest_matching_tag() {
   tag_names_with_curl | first_matching_tag
 }
 
+list_matching_tags() {
+  if command -v gh >/dev/null 2>&1; then
+    tag_names_with_gh | all_matching_tags
+    return
+  fi
+
+  tag_names_with_curl | all_matching_tags
+}
+
 main() {
   local tag
+
+  if [[ "${LIST_ALL}" == "true" ]]; then
+    if [[ -n "${TAG}" ]]; then
+      printf '%s\n' "${TAG}"
+      return 0
+    fi
+    list_matching_tags
+    return 0
+  fi
 
   if [[ -n "${TAG}" ]]; then
     printf '%s\n' "${TAG}"

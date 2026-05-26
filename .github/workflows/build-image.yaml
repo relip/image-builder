@@ -102,6 +102,7 @@ jobs:
         TAG: ${{ matrix.tag }}
         TAG_PREFIX: ${{ matrix.tag_prefix }}
         TAG_REGEX: ${{ matrix.tag_regex }}
+        TAG_LATEST: ${{ matrix.tag_latest }}
         CONTEXT_SUBDIR: ${{ matrix.context_subdir }}
         DOCKERFILE: ${{ matrix.dockerfile || 'Dockerfile' }}
         PLATFORMS: ${{ matrix.platforms || 'linux/amd64' }}
