@@ -74,7 +74,8 @@ jobs:
         INPUT_PLATFORMS: ${{ inputs.platforms }}
       run: |
         set -euo pipefail
-        echo "matrix=$(bash ./scripts/matrix-to-json.sh matrix.json)" >> "$GITHUB_OUTPUT"
+        bash ./scripts/matrix-to-json.sh matrix.json > matrix-output.json
+        echo "matrix=$(cat matrix-output.json)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: matrix

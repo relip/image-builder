@@ -79,13 +79,16 @@ expand_items_with_tags() {
       tag_regex="$(jq -r '.tag_regex // ""' <<<"${item}")"
 
       local tags
-      tags="$(
+      if ! tags="$(
         UPSTREAM_REPOSITORY="${upstream}" \
           TAG_PREFIX="${tag_prefix}" \
           TAG_REGEX="${tag_regex}" \
           LIST_ALL=true \
           bash "${SCRIPT_DIR}/resolve-tag.sh"
-      )"
+      )"; then
+        echo "Failed to resolve tags for $(jq -r '.name' <<<"${item}") (${upstream})" >&2
+        exit 1
+      fi
 
       if [[ -z "${tags}" ]]; then
         echo "No matching tags found for $(jq -r '.name' <<<"${item}") (${upstream})" >&2
